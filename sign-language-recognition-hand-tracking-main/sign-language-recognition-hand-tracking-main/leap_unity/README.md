@@ -1,5 +1,4 @@
-```markdown
-# Leap Motion → Python → Unity
+```markdown Leap Motion → Python → Unity
 
 The code originates from `E:\test_python3` and, after organization, still uses the original lowercase `leap` API, Listener callbacks, JSON, and TCP.
 
@@ -61,7 +60,3 @@ Added connection timeouts, reconnect throttling, accepting new connections after
 The fist `SceneA` command from the original sender is preserved, but `SEND_GESTURE_COMMANDS = False`. No `SceneA` scene or corresponding scene-switching receiver was found, so the receiver currently ignores `command` packets. This organized version does not fabricate interactive scenes that did not exist originally.
 
 When no hands are detected or the connection drops, objects stay at their last position; auto-hiding and full finger-skeleton reconstruction have not been added. Two hands' palm positions are not equivalent to full hand-pose reconstruction.
-
-```
-
-```
