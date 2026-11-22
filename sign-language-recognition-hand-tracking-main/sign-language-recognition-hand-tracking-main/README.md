@@ -1,80 +1,70 @@
-# 手語辨識與手部追蹤系統
+# Sign Language Recognition and Hand Tracking System
 
-本專題包含兩個模組：使用 MediaPipe 與 CNN-LSTM 辨識 LSA64 的 64 類手語，以及透過 Leap Motion、Python、TCP 與 Unity 呈現即時雙手掌心位置。
+This project includes two modules: recognizing 64 sign language classes from LSA64 using MediaPipe and CNN-LSTM, and displaying real-time dual-hand palm positions through Leap Motion, Python, TCP, and Unity.
 
-程式由原專題原始碼整理，保留原 CNN-LSTM 模型架構，補上註解並修正資料、模型配對及通訊銜接。程式來源與調整內容見 [來源說明](reference/程式來源與修改說明.md)。
+The code is organized from the original project source code, preserving the original CNN-LSTM model architecture while adding comments and fixing data, model pairing, and communication integration. See [Source Notes](reference/程式來源與修改說明.md) for code sources and modifications.
 
-## 儲存庫內容
+## Repository Contents
 
 ```text
-scripts/               手語辨識主流程 01～05 與共用設定
-models/current/        原有中心化模型與配對 scaler
-leap_unity/            Leap 傳送端、Unity 接收端及必要 API 原始碼
-reference/             類別名稱、環境、來源與驗證說明
+scripts/               Sign language recognition pipeline 01–05 and shared configuration
+models/current/        Existing centered model and paired scaler
+leap_unity/            Leap sender, Unity receiver, and required API source code
+reference/             Class labels, environment, source, and verification notes
 ```
 
-資料集、擷取後 CSV、歷史實驗程式、舊模型與舊報表未納入此儲存庫。原始備份保留於專題擁有者本機。
+Uses camera `0` by default; press `Q` to quit. If your camera uses a different index, update `VideoCapture(0)`. Speech synthesis is disabled by default; set `ENABLE_SPEECH` to `True` when needed and use an environment that already has `pyttsx3` installed.
 
-## 使用既有模型開啟攝影機
+The provided `hand_gesture_model_centered1.h5` and `scaler1.save` are the original paired artifacts, not results retrained during this cleanup. Whether the legacy model loads directly still depends on the original package versions.
 
-使用原本能運作的 Python／MediaPipe／TensorFlow 環境，在儲存庫根目錄執行：
+## Retraining and Testing from Videos
 
-```powershell
-python scripts\05_webcam.py
-```
+This repository does not include `data/`. Create `data/videos/` yourself and place the LSA64 videos inside with filenames such as `001_001_001.mp4`. The three numeric segments represent the action, subject, and repetition index in order.
 
-預設使用攝影機 `0`，按 `Q` 結束。若相機在其他編號，修改 `VideoCapture(0)`。語音朗讀預設關閉，需要時將 `ENABLE_SPEECH` 改為 `True`，並使用原本裝有 `pyttsx3` 的環境。
+Wait for the previous script to finish before running the next one:
 
-提供的 `hand_gesture_model_centered1.h5` 與 `scaler1.save` 是原有模型配對，不是本次整理重新訓練的成果。舊模型能否直接載入仍取決於原套件版本。
+| Order | Command | Function and Output |
+| --- | --- | --- |
+| 01 | `python scripts\01_extract_keypoints.py` | Extracts 21 single-hand landmarks, centers them at the wrist, and saves 63-dimensional coordinates to `data/training_keypoints/` |
+| 02 | `python scripts\02_train.py` | Trains the CNN-LSTM and saves the model, scaler, test list, training curves, and test-window confusion matrix |
+| 03 | `python scripts\03_evaluate_csv.py` | Uses only held-out test video CSVs and outputs video-level Top-1 accuracy, prediction list, and confusion matrix |
+| 04 Optional | `python scripts\04_predict_videos.py` | Re-extracts features from source videos and runs backtesting across all videos |
+| 05 Optional | `python scripts\05_webcam.py` | Opens the camera for real-time recognition |
 
-## 從影片重新訓練與測試
+All paths are resolved relative to the project root, with shared configuration in `scripts/project_config.py`. Steps 04 and 05 are separate testing modes and do not depend on each other.
 
-本儲存庫不包含 `data/`。先自行建立 `data/videos/`，放入 LSA64 影片，檔名如 `001_001_001.mp4`。三段編號依序表示動作、受試者與重複次數。
+### Data and Training Configuration
 
-等上一支程式結束，再執行下一支：
+- Feature layout: `x0,y0,z0,...,x20,y20,z20`. Frames where no hand is detected are skipped following the original extraction rule, so 60 rows are not guaranteed to correspond to 60 consecutive frames in the source video.
+- Time window length is 60 with a stride of 15; each class requires at least 5 videos containing at least 60 rows of valid data.
+- Split videos first into roughly 60% train, 20% validation, and 20% test sets, then slice windows separately. Fit the scaler exclusively on the training videos.
+- Preserves the original Conv1D → LSTM → Dense → Softmax architecture, with defaults of 30 epochs, batch size 32, and EarlyStopping patience 5.
+- Step `02` overwrites the model and scaler in `models/current/`. Back up the provided weights first if you want to keep them.
 
-| 順序 | 指令 | 功能與輸出 |
-|---|---|---|
-| 01 | `python scripts\01_extract_keypoints.py` | 擷取單手 21 點，手腕中心化後將 63 維座標存入 `data/training_keypoints/` |
-| 02 | `python scripts\02_train.py` | 訓練 CNN-LSTM，儲存模型、scaler、測試清單、曲線與測試視窗混淆矩陣 |
-| 03 | `python scripts\03_evaluate_csv.py` | 只使用保留測試影片的 CSV，輸出影片層級 Top-1、預測清單與混淆矩陣 |
-| 04 選用 | `python scripts\04_predict_videos.py` | 從原影片重新擷取特徵，回測全部影片 |
-| 05 選用 | `python scripts\05_webcam.py` | 開啟攝影機進行即時辨識 |
+Results from `03` are saved under `outputs/csv_test/`, including `predictions.csv`, `metrics.json`, and `confusion_matrix.csv`. Each video selects Top-1 using averaged window probabilities, which uses a different statistical unit than the per-window confusion matrix from `02`.
 
-所有路徑以專案所在位置計算，共用設定在 `scripts/project_config.py`。步驟 04、05 是不同測試方式，互不依賴。
-
-### 資料與訓練設定
-
-- 特徵排列：`x0,y0,z0,...,x20,y20,z20`。未偵測到手的幀沿用原擷取規則略過，因此 60 列不保證對應原影片連續 60 幀。
-- 時間視窗長度 60，步距 15；每類至少需要 5 部具有 60 列有效資料的影片。
-- 先按影片分成約 60% 訓練、20% 驗證、20% 測試，再分別切窗。scaler 僅使用訓練影片擬合。
-- 保留原 Conv1D → LSTM → Dense → Softmax 架構，預設 30 epochs、batch size 32、EarlyStopping patience 5。
-- 02 會更新 `models/current/` 的模型與 scaler。需要保留提供的權重時，請先自行備份。
-
-03 的結果位於 `outputs/csv_test/`，包含 `predictions.csv`、`metrics.json`、`confusion_matrix.csv`。各影片以視窗平均機率選取 Top-1；與 02 的每視窗混淆矩陣是不同統計單位。
-
-若使用原有模型回測自行準備的中心化 CSV，舊模型沒有獨立測試清單，須明確指定：
+When using the legacy model to backtest self-prepared centered CSVs, the legacy model has no separate test manifest, so you must explicitly specify:
 
 ```powershell
 python scripts\03_evaluate_csv.py --split all --csv-dir data\training_keypoints
 ```
 
-`all` 與步驟 04 可能包含訓練影片，不能當成獨立測試準確率。03 類別輸出使用 1～64；04 沿用原版的 0～63。
+`all` and step `04` may include training videos, so they cannot be treated as standalone test accuracy. `03` outputs class labels as `1–64`, while `04` keeps the original `0–63` numbering.
 
-## Leap Motion 與 Unity
+## Leap Motion and Unity
 
-這條流程不需要先訓練 CNN-LSTM。請依 [Leap／Unity 操作說明](leap_unity/README.md)，先啟動 Unity 接收端，再執行：
+This workflow does not require training the CNN-LSTM first. Following the [Leap/Unity Instructions](leap_unity/README.md), start the Unity receiver first, then run:
 
 ```powershell
 python leap_unity\python\gesture_sender.py
 ```
 
-預設傳送至 `127.0.0.1:8054`。必要的現代 Python API 原始碼隨專案提供，但仍需要原有 Ultraleap SDK、CFFI 繫結、追蹤服務與裝置。
+Sends to `127.0.0.1:8054` by default. The required modern Python API source code is included with the project, but you still need the existing Ultraleap SDK, CFFI bindings, tracking service, and hardware.
 
-本儲存庫提供 Unity 接收腳本，未包含完整 Unity 專案、場景或互動素材。腳本可分別移動左右手物件，目前傳送的是掌心位置，未實作完整手指骨架動畫。
+This repository provides the Unity receiver script, not a full Unity project, scene, or interactive assets. The script can move left and right hand objects separately, currently sending palm positions without full finger skeleton animation.
 
-## 驗證與限制
+## Verification and Limitations
 
-整理版已進行語法、原始模型架構比對及模擬 JSON／斷線清理檢查。尚未在原環境實際訓練、開啟攝影機或執行 Unity／Leap 裝置；詳見 [驗證說明](reference/驗證紀錄.md) 與 [環境說明](reference/套件與環境說明.md)。
+The cleaned version has undergone syntax checks, original model architecture comparisons, and simulated JSON/disconnection cleanup checks. It has not yet been trained in the original environment, run on a live camera, or tested with a Unity/Leap device; see [Verification Notes](reference/驗證紀錄.md) and [Environment Notes](reference/套件與環境說明.md) for details.
 
-手語模型仍是單手 63 維輸入，雙手追蹤屬於另一模組。資料切分修正會影響準確率，本次未重現或重新量測專題說明中的約 87%。目前沒有將 CNN-LSTM 辨識文字傳送至 Unity 場景的程式。
+The sign language model still takes 63-dimensional single-hand input, while dual-hand tracking is a separate module. Fixing the data split affects accuracy, and the ~87% figure noted in the project description was not reproduced or re-measured here. There is currently no code sending CNN-LSTM recognition text into the Unity scene.
